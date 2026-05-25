@@ -57,3 +57,22 @@ license: mit
 |---|---|
 | `ANTHROPIC_API_KEY` | Claude API 호출 |
 | `HF_TOKEN` | pyannote.audio 모델 다운로드 (HF Hub 게이트 모델) |
+
+## pyannote 모델 사전 동의 (필수)
+
+처음 사용 전 HuggingFace 계정으로 다음 두 모델 페이지에서 **"Agree and access repository"** 클릭이 필요합니다.
+
+1. https://huggingface.co/pyannote/speaker-diarization-3.1
+2. https://huggingface.co/pyannote/segmentation-3.0
+
+동의 후 발급받은 토큰을 `HF_TOKEN` 시크릿으로 등록하세요.
+
+## 로컬 실행 (개발용)
+
+```bash
+pip install -r requirements.txt
+cp .env.example .env  # 토큰 채워넣기
+python app.py
+```
+
+CPU만 있는 환경에서도 동작하나 20~40분 녹음 전사에 수십 분이 걸립니다. GPU(T4 이상) 권장.

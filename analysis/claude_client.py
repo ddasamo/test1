@@ -1,12 +1,21 @@
-"""Claude Opus 4.7로 5가지 이론별 분석을 수행 (Phase 3에서 구현)."""
+"""Claude Opus 4.7로 이론별 발화 분석을 수행 (Phase 3에서 구현).
+
+KCI 논문 범위: Flanders + Bloom 두 이론에 집중.
+나머지 3개(IRF, Wait Time, Feedback)는 향후 확장 슬롯으로 둔다.
+"""
 
 from pathlib import Path
 
+# 논문에 사용하는 이론 (현재 활성)
 THEORIES = {
     "flanders": "Flanders 언어상호작용분석",
+    "bloom": "Bloom 발문 인지수준 분석",
+}
+
+# 향후 확장 슬롯 — 프롬프트와 코드 정비되면 THEORIES에 합치기
+FUTURE_THEORIES = {
     "irf": "IRF 시퀀스 구조 분석",
     "wait_time": "Rowe Wait Time 분석",
-    "bloom": "Bloom 발문 인지수준 분석",
     "feedback": "MET 피드백 9유형 분석",
 }
 

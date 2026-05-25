@@ -20,12 +20,16 @@ license: mit
 1. **STT + 화자분할**: Whisper-large-v3 + pyannote.audio 3.x
 2. **전사 정제**: 화자 라벨을 T(교사) / S1, S2, …(학생) / SS(다수)로 매핑,
    3초 이상 침묵 자동 삽입
-3. **5가지 이론 분석** (Claude Opus 4.7):
-   - Flanders 언어상호작용분석 (FIACS, 1959)
-   - Sinclair & Coulthard IRF + Wells(1993) 연쇄 확장
-   - Rowe(1974) Wait Time 1 / Wait Time 2
-   - Bloom 신교육목표분류학 (Anderson & Krathwohl, 2001) + Alexander 대화적 교수법
-   - MET Project(2013) 피드백 9유형 (EV / FW / EL)
+3. **이론별 분석** (Claude Opus 4.7):
+   - **Flanders 언어상호작용분석** (FIACS, 1959) — 발화량 구조 + 영향력 방향
+   - **Bloom 신교육목표분류학** (Anderson & Krathwohl, 2001) + Alexander 대화적 교수법 — 발문 인지수준
+   - *향후 확장*: IRF(Sinclair & Coulthard 1975 / Wells 1993), Rowe Wait Time, MET 피드백 9유형
+
+## 연구 목적
+
+본 도구는 **AI 분석과 인간 분석자의 일치도 검증** 및
+**교사 수업변화 추적**을 위한 KCI 논문 연구의 분석 인프라다.
+각 이론별 출력에는 인간 코더 결과와 비교 가능한 JSON 블록이 포함된다.
 
 ## 폴더 구조
 
@@ -38,12 +42,8 @@ license: mit
 ├── analysis/
 │   └── claude_client.py    # Claude API 호출
 ├── prompts/
-│   ├── refine.md           # 전사 정제 프롬프트(보조)
-│   ├── flanders.md
-│   ├── irf.md
-│   ├── wait_time.md
-│   ├── bloom.md
-│   └── feedback.md
+│   ├── flanders.md         # 현재 활성
+│   └── bloom.md            # 현재 활성
 └── requirements.txt
 ```
 

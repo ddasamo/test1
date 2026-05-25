@@ -155,7 +155,7 @@ Flanders의 핵심 명제는 "교사 발화의 양이 아니라,
   "diagnosis": {
     "influence_direction": "indirect | direct",
     "summary": "한 줄 요약 문자열",
-    "next_action": "다음 시도할 1가지 문자열"
+    "intervention_suggestion": "다음 시도할 1가지 처방 제안 (객관 분류와 분리)"
   }
 }
 ```

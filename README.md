@@ -44,6 +44,8 @@ license: mit
 ├── prompts/
 │   ├── flanders.md         # 현재 활성
 │   └── bloom.md            # 현재 활성
+├── docs/
+│   └── methodology_decisions.md   # 논문 Methods 인용용 의사결정 기록
 └── requirements.txt
 ```
 

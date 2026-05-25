@@ -45,7 +45,9 @@ license: mit
 │   ├── flanders.md         # 현재 활성
 │   └── bloom.md            # 현재 활성
 ├── docs/
-│   └── methodology_decisions.md   # 논문 Methods 인용용 의사결정 기록
+│   ├── methodology_decisions.md   # 논문 Methods 인용용 의사결정 기록
+│   ├── coding_manual_flanders.md  # 인간 코더용 Flanders 분류 매뉴얼
+│   └── coding_manual_bloom.md     # 인간 코더용 Bloom 분류 매뉴얼
 └── requirements.txt
 ```
 

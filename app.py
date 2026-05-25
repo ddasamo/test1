@@ -1,14 +1,13 @@
-"""Gradio 진입점.
+"""Gradio 진입점 — 업로드 → 전사 → 이론별 분석."""
 
-Phase A: STT + 화자분할 + 정제까지 연결.
-Phase B: Claude 분석은 다음 단계에서 연결 예정.
-"""
-
+import json
+import tempfile
 import traceback
+from pathlib import Path
 
 import gradio as gr
 
-from analysis.claude_client import THEORIES
+from analysis.claude_client import THEORIES, analyze
 from pipeline.refine import refine, render_text
 from pipeline.transcribe import transcribe
 
@@ -24,10 +23,43 @@ def handle_transcribe(audio_file: str | None) -> str:
         return "전사 중 오류가 발생했습니다.\n\n" + traceback.format_exc()
 
 
-def run_theory(theory_key: str, refined_transcript: str) -> str:
-    if not refined_transcript:
-        return "먼저 전사를 완료해주세요."
-    return f"[{THEORIES[theory_key]}] — Phase B에서 Claude Opus 호출 연결 예정"
+def run_theory(theory_key: str, refined_transcript: str) -> tuple[str, str | None]:
+    """이론 분석을 실행하고 (markdown, json_file_path)를 반환."""
+    if not refined_transcript or refined_transcript.startswith("오디오") or refined_transcript.startswith("전사 중"):
+        return "먼저 전사를 완료해주세요.", None
+    try:
+        result = analyze(theory_key, refined_transcript)
+    except Exception:
+        return "분석 중 오류가 발생했습니다.\n\n" + traceback.format_exc(), None
+
+    # JSON export 파일 생성 (인간 코더 결과와 일치도 측정용)
+    tmp_dir = Path(tempfile.gettempdir())
+    json_path = tmp_dir / f"analysis_{theory_key}.json"
+    json_path.write_text(
+        json.dumps(
+            {
+                "theory": result.theory,
+                "consensus_classifications": result.consensus_classifications,
+                "usage": result.usage,
+                "cache_hit": result.cache_hit,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    header = ""
+    if result.cache_hit:
+        header += "_(캐시된 결과)_\n\n"
+    else:
+        u = result.usage
+        header += (
+            f"_(분석 완료 — 입력 {u['input_tokens']:,} / 출력 {u['output_tokens']:,} 토큰, "
+            f"캐시 읽기 {u['cache_read_input_tokens']:,})_\n\n"
+        )
+
+    return header + result.markdown, str(json_path)
 
 
 with gr.Blocks(title="수업 발화 분석기") as demo:
@@ -48,12 +80,13 @@ with gr.Blocks(title="수업 발화 분석기") as demo:
     with gr.Tabs():
         for key, label in THEORIES.items():
             with gr.Tab(label):
-                analyze_btn = gr.Button(f"{label} 실행")
-                analysis_out = gr.Markdown()
+                analyze_btn = gr.Button(f"{label} 실행", variant="primary")
+                analysis_md = gr.Markdown()
+                json_file = gr.File(label="분석 결과 JSON (다운로드)", visible=True)
                 analyze_btn.click(
                     fn=lambda t, k=key: run_theory(k, t),
                     inputs=transcript_out,
-                    outputs=analysis_out,
+                    outputs=[analysis_md, json_file],
                 )
 
 

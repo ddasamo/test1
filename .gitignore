@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.env.local
+
+# audio / outputs
+*.mp3
+*.wav
+*.m4a
+outputs/
+.gradio/
+flagged/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store

@@ -1,9 +1,9 @@
 gradio>=4.44.0,<5
 huggingface_hub>=0.24,<0.27
 faster-whisper>=1.0.3
-pyannote.audio>=3.3.2
+pyannote.audio==3.1.1
 anthropic>=0.40.0
-torch>=2.2.0
-torchaudio>=2.2.0
+torch>=2.1,<2.2
+torchaudio>=2.1,<2.2
 pydub>=0.25.1
 python-dotenv>=1.0.1

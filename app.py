@@ -91,4 +91,4 @@ with gr.Blocks(title="수업 발화 분석기") as demo:
 
 
 if __name__ == "__main__":
-    demo.launch()
+    demo.launch(server_name="0.0.0.0", server_port=7860, show_api=False)

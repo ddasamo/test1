@@ -23,7 +23,7 @@ from .utterance import Utterance
 
 _TS_RE = re.compile(r"\b(\d{1,2}):(\d{2})(?::(\d{2}))?\b")
 _SPEAKER_RE = re.compile(
-    r"(?:화자\s*\d+|Speaker\s*\d+|SPEAKER[_\s]?\d+|발화자\s*\d+)",
+    r"(?:참석자\s*\d+|화자\s*\d+|발화자\s*\d+|Speaker\s*\d+|SPEAKER[_\s]?\d+)",
     re.IGNORECASE,
 )
 

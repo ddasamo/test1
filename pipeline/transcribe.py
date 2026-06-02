@@ -41,7 +41,7 @@ class Utterance:
 
 @dataclass
 class TranscribeConfig:
-    whisper_model: str = "large-v3"
+    whisper_model: str = "small"
     language: str = "ko"
     diarization_model: str = "pyannote/speaker-diarization-3.1"
     # 한 발화 내 단어 간 최대 허용 간격(초). 이보다 크면 새 발화로 분리.

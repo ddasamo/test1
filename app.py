@@ -16,17 +16,22 @@ from analysis.export import (
 from pipeline.parse_clova import parse_clova_text
 from pipeline.refine import refine, render_text
 
-CLOVA_PLACEHOLDER = """예시 (CLOVA Note 다운로드 형식):
+CLOVA_PLACEHOLDER = """CLOVA Note 다운로드 텍스트를 그대로 붙여넣으세요.
 
-화자1 00:00:03
+예시:
+
+참석자 1 00:03
 안녕하세요 여러분, 오늘 수업을 시작할게요.
 
-화자2 00:00:12
+참석자 2 00:12
 네 선생님 안녕하세요.
 
-화자1 00:00:18
+참석자 1 00:18
 자, 그러면 지난 시간에 배운 내용을 복습해볼까요?
 ...
+
+⚠️ 첫 발화부터 '참석자 N MM:SS' 헤더가 있어야 인식됩니다.
+헤더가 없는 맨 앞 텍스트는 무시되므로, 필요하면 수동으로 헤더를 추가해주세요.
 """
 
 TMP_DIR = Path(tempfile.gettempdir())
@@ -40,7 +45,8 @@ def handle_paste(clova_text: str) -> str:
         if not utterances:
             return (
                 "전사 텍스트에서 화자/시간 형식을 인식하지 못했습니다.\n"
-                "각 발화 줄에 '화자N HH:MM:SS' 또는 '화자N MM:SS' 헤더가 있어야 합니다."
+                "각 발화는 '참석자 N MM:SS' (또는 '화자 N MM:SS') 헤더로 시작해야 합니다.\n"
+                "예: '참석자 2 47:46' 다음 줄에 발화 내용."
             )
         return render_text(refine(utterances))
     except Exception:

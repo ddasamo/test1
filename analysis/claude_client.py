@@ -1,4 +1,4 @@
-"""Claude Opus 4.7로 이론별 발화 분석을 수행.
+"""Claude Sonnet 4.6으로 이론별 발화 분석을 수행.
 
 KCI 논문 범위: Flanders + Bloom 두 이론에 집중.
 나머지 3개(IRF, Wait Time, Feedback)는 향후 확장 슬롯으로 둔다.
@@ -24,7 +24,8 @@ from typing import Any
 
 import anthropic
 
-MODEL = "claude-opus-4-7"
+MODEL = "claude-sonnet-4-6"
+PROMPT_VERSION = "v2.0"
 MAX_TOKENS = 16000
 DEFAULT_RUNS = 3
 

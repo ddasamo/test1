@@ -4,10 +4,5 @@ numpy<2.0
 pydantic>=2.5,<2.10
 fastapi>=0.110,<0.116
 starlette>=0.37,<0.42
-faster-whisper>=1.0.3
-pyannote.audio==3.1.1
 anthropic>=0.40.0
-torch>=2.1,<2.2
-torchaudio>=2.1,<2.2
-pydub>=0.25.1
 python-dotenv>=1.0.1

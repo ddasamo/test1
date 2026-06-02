@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
-from .transcribe import Utterance
+from .utterance import Utterance
 
 
 @dataclass

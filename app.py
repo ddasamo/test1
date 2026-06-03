@@ -14,6 +14,7 @@ from analysis.export import (
     build_unified_json,
     flanders_to_csv,
 )
+from analysis.sequence import build_sequence_json, detect_patterns, detect_probing
 from config import FLANDERS_ENABLED
 from pipeline.parse_clova import parse_clova_text
 from pipeline.refine import refine, render_text
@@ -145,6 +146,51 @@ def run_boundary(bloom_result: object | None, refined_transcript: str) -> tuple[
     return "\n".join(lines), str(path)
 
 
+def run_sequence(bloom_result: object | None, session_id: str) -> tuple[str, str | None]:
+    """Bloom 결과 시퀀스 패턴 + Probing 분석 → (요약 markdown, JSON 경로)."""
+    if bloom_result is None:
+        return "먼저 **Bloom 분석**을 실행해주세요.", None
+    classifications = bloom_result.consensus_classifications  # type: ignore[union-attr]
+    if not classifications:
+        return "Bloom 분석 결과가 비어 있습니다.", None
+
+    patterns = detect_patterns(classifications)
+    probing_count, denom, _ = detect_probing(classifications)
+    probing_ratio = (probing_count / denom * 100) if denom else 0.0
+
+    counts = {
+        "plateau": sum(1 for p in patterns if p["type"] == "plateau"),
+        "stairs": sum(1 for p in patterns if p["type"] == "stairs"),
+        "inductive": sum(1 for p in patterns if p["type"] == "inductive"),
+        "fragmented": sum(1 for p in patterns if p["type"] == "fragmented"),
+    }
+    lines = [
+        "### 발문 시퀀스 패턴 분석",
+        f"총 발문 **{len(classifications)}건**",
+        "",
+        f"- 수평형(plateau): **{counts['plateau']}건**",
+        f"- 계단형(stairs): **{counts['stairs']}건**",
+        f"- 귀납형(inductive): **{counts['inductive']}건**",
+        f"- 분절형(fragmented): **{counts['fragmented']}건**",
+        "",
+        f"### Probing 발문",
+        f"학생 응답이 있던 발문 **{denom}건** 중 Probing **{probing_count}건** ({probing_ratio:.1f}%)",
+        "",
+    ]
+    if patterns:
+        lines.append("### 검출된 패턴 (상위 10개)")
+        for p in patterns[:10]:
+            lines.append(
+                f"- **{p['type']}** [{p['start_question']} → {p['end_question']}]: "
+                f"{' → '.join(p['levels'])}"
+            )
+
+    payload = build_sequence_json(bloom_result, session_id)  # type: ignore[arg-type]
+    path = TMP_DIR / "sequence_patterns.json"
+    path.write_text(payload, encoding="utf-8")
+    return "\n".join(lines), str(path)
+
+
 def export_unified(
     flanders_result: object | None,
     bloom_result: object | None,
@@ -220,6 +266,24 @@ with gr.Blocks(title="수업 발화 분석기") as demo:
                 run_boundary,
                 inputs=[bloom_state, transcript_out],
                 outputs=[boundary_summary, boundary_csv],
+            )
+
+        with gr.Tab("시퀀스 패턴"):
+            gr.Markdown(
+                "Bloom 분류 결과의 단계 시퀀스에서 **수평형/계단형/귀납형/분절형** 패턴과 "
+                "**Probing 발문**(직전 학생 응답 + 신호어 + L4↑)을 자동 식별합니다."
+            )
+            sequence_session_in = gr.Textbox(
+                label="Session ID (선택 — 결과 JSON에 기록)",
+                placeholder="예: 20260603_class01",
+            )
+            sequence_btn = gr.Button("시퀀스 패턴 분석", variant="primary")
+            sequence_summary = gr.Markdown()
+            sequence_json = gr.File(label="sequence_patterns.json")
+            sequence_btn.click(
+                run_sequence,
+                inputs=[bloom_state, sequence_session_in],
+                outputs=[sequence_summary, sequence_json],
             )
 
     gr.Markdown(

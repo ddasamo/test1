@@ -165,8 +165,22 @@ def build_unified_json(
     # v3: 실제 실행된 이론만 포함 (Flanders 비활성화 시 자동 누락)
     if bloom_result is not None:
         from .boundary import boundary_distribution, filter_boundary_cases
+        from .sequence import detect_patterns, detect_probing
         payload["bloom_results"] = bloom_result.consensus_classifications
         payload["boundary_cases"] = filter_boundary_cases(bloom_result)
+        patterns = detect_patterns(bloom_result.consensus_classifications)
+        probing_count, denom, _ = detect_probing(bloom_result.consensus_classifications)
+        payload["sequence_patterns"] = {
+            "pattern_counts": {
+                "plateau": sum(1 for p in patterns if p["type"] == "plateau"),
+                "stairs": sum(1 for p in patterns if p["type"] == "stairs"),
+                "inductive": sum(1 for p in patterns if p["type"] == "inductive"),
+                "fragmented": sum(1 for p in patterns if p["type"] == "fragmented"),
+            },
+            "patterns_detected": patterns,
+            "probing_count": probing_count,
+            "probing_ratio": round(probing_count / denom, 3) if denom else 0.0,
+        }
         payload["distributions"] = {
             **_bloom_distributions(bloom_result),
             **boundary_distribution(bloom_result),

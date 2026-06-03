@@ -104,8 +104,12 @@ def _extract_json_block(text: str) -> dict | None:
 
 
 def _call_once(client: anthropic.Anthropic, prompt: str, transcript: str) -> tuple[str, dict, dict]:
-    """Claude를 1회 호출하고 (markdown_text, parsed_json, usage_dict) 반환."""
-    response = client.messages.create(
+    """Claude를 1회 호출하고 (markdown_text, parsed_json, usage_dict) 반환.
+
+    max_tokens가 크면 SDK가 10분 timeout 위험으로 streaming을 요구하므로,
+    내부적으로 messages.stream() 컨텍스트로 호출 후 최종 메시지 수집.
+    """
+    with client.messages.stream(
         model=MODEL,
         max_tokens=MAX_TOKENS,
         system=[
@@ -116,7 +120,8 @@ def _call_once(client: anthropic.Anthropic, prompt: str, transcript: str) -> tup
             }
         ],
         messages=[{"role": "user", "content": transcript}],
-    )
+    ) as stream:
+        response = stream.get_final_message()
     text_blocks = [b.text for b in response.content if b.type == "text"]
     text = "\n".join(text_blocks)
     parsed = _extract_json_block(text) or {}

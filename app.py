@@ -146,6 +146,66 @@ def run_boundary(bloom_result: object | None, refined_transcript: str) -> tuple[
     return "\n".join(lines), str(path)
 
 
+def make_overview(bloom_result: object | None) -> str:
+    """Bloom 분석 결과 기반 분포·패턴 요약 — 점수·등급 없음, 객관 기술만 (사양 §7.2)."""
+    if bloom_result is None:
+        return "_Bloom 분석을 먼저 실행해주세요._"
+    classifications = bloom_result.consensus_classifications  # type: ignore[union-attr]
+    total = len(classifications)
+    if total == 0:
+        return "_분류 결과가 비어 있습니다._"
+
+    from analysis.boundary import filter_boundary_cases
+    from analysis.export import _bloom_distributions
+    from analysis.sequence import detect_patterns, detect_probing
+
+    dist = _bloom_distributions(bloom_result)  # type: ignore[arg-type]
+    level_counts = dist.get("level_counts", {})
+    lower_higher = dist.get("lower_higher_ratio", {})
+    openness = dist.get("openness_ratio", {})
+    conf = dist.get("confidence_distribution", {})
+    boundary_n = len(filter_boundary_cases(bloom_result))  # type: ignore[arg-type]
+    patterns = detect_patterns(classifications)
+    pc_count, pc_denom, _ = detect_probing(classifications)
+
+    lines = [
+        f"### 분석 개요",
+        f"- 총 분석 발문: **{total}건**",
+        "",
+        "### Bloom 단계 분포",
+    ]
+    for lv in ("L1", "L2", "L3", "L4", "L5", "L6"):
+        cnt = level_counts.get(lv, 0)
+        lines.append(f"- {lv}: {cnt}건 ({cnt / total * 100:.1f}%)")
+
+    lines += [
+        "",
+        "### 저차/고차",
+        f"- 저차 (L1~L3): {lower_higher.get('lower', 0) * 100:.1f}%",
+        f"- 고차 (L4~L6): {lower_higher.get('higher', 0) * 100:.1f}%",
+        "",
+        "### 개방성",
+        f"- 열림: {openness.get('open', 0) * 100:.1f}% / 닫힘: {openness.get('closed', 0) * 100:.1f}%",
+        "",
+        "### Confidence 분포",
+        f"- 상: {conf.get('상', 0)}건 / 중: {conf.get('중', 0)}건 / 하: {conf.get('하', 0)}건",
+        "",
+        "### L2/L4 경계 사례",
+        f"- {boundary_n}건 ({boundary_n / total * 100:.1f}%)",
+        "",
+        "### 시퀀스 패턴",
+        f"- 수평형: {sum(1 for p in patterns if p['type'] == 'plateau')}건",
+        f"- 계단형: {sum(1 for p in patterns if p['type'] == 'stairs')}건",
+        f"- 귀납형: {sum(1 for p in patterns if p['type'] == 'inductive')}건",
+        f"- 분절형: {sum(1 for p in patterns if p['type'] == 'fragmented')}건",
+        "",
+        "### Probing 발문",
+        f"- 학생 응답이 있던 발문 **{pc_denom}건** 중 Probing **{pc_count}건**"
+        + (f" ({pc_count / pc_denom * 100:.1f}%)" if pc_denom else ""),
+    ]
+    return "\n".join(lines)
+
+
 def run_sequence(bloom_result: object | None, session_id: str) -> tuple[str, str | None]:
     """Bloom 결과 시퀀스 패턴 + Probing 분석 → (요약 markdown, JSON 경로)."""
     if bloom_result is None:
@@ -236,8 +296,17 @@ with gr.Blocks(title="수업 발화 분석기") as demo:
 
     refine_btn.click(handle_paste, inputs=clova_in, outputs=transcript_out)
 
-    gr.Markdown("## 2) 이론별 분석")
+    gr.Markdown("## 2) 분석")
     with gr.Tabs():
+        with gr.Tab("개요"):
+            gr.Markdown(
+                "Bloom 분석 실행 후 아래 버튼을 누르면 **분포·경계·시퀀스·Probing** "
+                "주요 통계가 한눈에 표시됩니다. (점수·등급 없음, 객관 기술만)"
+            )
+            overview_btn = gr.Button("요약 보기", variant="primary")
+            overview_md = gr.Markdown()
+            overview_btn.click(make_overview, inputs=bloom_state, outputs=overview_md)
+
         for key, label in THEORIES.items():
             if key == "flanders" and not FLANDERS_ENABLED:
                 continue
@@ -286,23 +355,23 @@ with gr.Blocks(title="수업 발화 분석기") as demo:
                 outputs=[sequence_summary, sequence_json],
             )
 
-    gr.Markdown(
-        "## 3) 통합 Export — 재현가능성용\n"
-        "Flanders + Bloom 결과를 하나의 JSON으로 묶고, session_id / prompt_version / "
-        "model / 분석 시각 메타데이터를 함께 기록합니다."
-    )
-    with gr.Row():
-        session_id_in = gr.Textbox(
-            label="Session ID (선택)",
-            placeholder="예: 20260603_class01 (비우면 자동 생성)",
-        )
-        unified_btn = gr.Button("통합 JSON 생성", variant="secondary")
-    unified_file = gr.File(label="통합 JSON 다운로드")
-    unified_btn.click(
-        export_unified,
-        inputs=[flanders_state, bloom_state, transcript_out, session_id_in],
-        outputs=unified_file,
-    )
+        with gr.Tab("통합 Export"):
+            gr.Markdown(
+                "Bloom + 경계 + 시퀀스 + distributions + 메타데이터(session_id / "
+                "prompt_version / model / 분석 시각)를 하나의 JSON으로 묶습니다. "
+                "재현가능성과 후속 분석 자료용."
+            )
+            session_id_in = gr.Textbox(
+                label="Session ID (선택)",
+                placeholder="예: 20260603_class01 (비우면 자동 생성)",
+            )
+            unified_btn = gr.Button("통합 JSON 생성", variant="primary")
+            unified_file = gr.File(label="통합 JSON 다운로드")
+            unified_btn.click(
+                export_unified,
+                inputs=[flanders_state, bloom_state, transcript_out, session_id_in],
+                outputs=unified_file,
+            )
 
 
 if __name__ == "__main__":

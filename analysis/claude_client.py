@@ -25,7 +25,7 @@ from typing import Any
 import anthropic
 
 MODEL = "claude-sonnet-4-6"
-PROMPT_VERSION = "v2.0"
+PROMPT_VERSION = "bloom_v3.0"
 MAX_TOKENS = 16000
 DEFAULT_RUNS = 3
 

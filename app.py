@@ -13,6 +13,7 @@ from analysis.export import (
     build_unified_json,
     flanders_to_csv,
 )
+from config import FLANDERS_ENABLED
 from pipeline.parse_clova import parse_clova_text
 from pipeline.refine import refine, render_text
 
@@ -158,6 +159,8 @@ with gr.Blocks(title="수업 발화 분석기") as demo:
     gr.Markdown("## 2) 이론별 분석")
     with gr.Tabs():
         for key, label in THEORIES.items():
+            if key == "flanders" and not FLANDERS_ENABLED:
+                continue
             with gr.Tab(label):
                 analyze_btn = gr.Button(f"{label} 실행", variant="primary")
                 analysis_md = gr.Markdown()

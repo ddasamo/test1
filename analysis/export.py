@@ -25,6 +25,13 @@ BLOOM_NAMES: dict[str, str] = {
 }
 OPENNESS_KR: dict[str, str] = {"open": "열림", "closed": "닫힘"}
 
+
+def _normalize_openness(raw: Any) -> str:
+    if raw is None:
+        return ""
+    s = str(raw).strip()
+    return OPENNESS_KR.get(s, s)  # 한국어면 그대로, 영어면 변환
+
 _TRANSCRIPT_LINE_RE = re.compile(r"^([A-Za-z]+\d+(?:_\d+)?)\s*:\s*(.+)$")
 _KST = timezone(timedelta(hours=9))
 
@@ -88,29 +95,38 @@ def flanders_to_csv(result: AnalysisResult, refined_transcript: str) -> str:
 
 
 def bloom_to_csv(result: AnalysisResult, refined_transcript: str) -> str:
+    """v3 사양 §6.1 — boundary_check, confidence, is_boundary_case 컬럼 포함."""
     content_lookup = _build_content_lookup(refined_transcript)
     buf = io.StringIO()
     writer = csv.writer(buf, quoting=csv.QUOTE_MINIMAL)
     writer.writerow([
-        "question_id", "utterance_id", "content",
-        "bloom_AI", "bloom_name_AI", "openness_AI", "rationale_AI",
+        "question_id", "utterance_id", "content", "prior_student_response",
+        "bloom_AI", "bloom_name_AI", "openness_AI",
+        "is_boundary_case", "q1", "q2", "q3",
+        "rationale_AI", "confidence",
         "bloom_human_coder1", "bloom_human_coder2",
-        "disagreement_flag",
+        "human_consensus", "disagreement_type",
     ])
     for idx, item in enumerate(result.consensus_classifications, start=1):
         uid = item.get("utterance_id", "")
         level = item.get("bloom_level", "")
-        openness_raw = item.get("openness", "")
+        bc = item.get("boundary_check") or {}
+        is_boundary = item.get("is_boundary_case")
         writer.writerow([
-            f"Q{idx:02d}",
+            item.get("question_id") or f"Q{idx:02d}",
             uid,
             item.get("question_text") or content_lookup.get(uid, ""),
+            item.get("prior_student_response") or "",
             level,
-            BLOOM_NAMES.get(level, ""),
-            OPENNESS_KR.get(openness_raw, openness_raw),
+            item.get("bloom_name") or BLOOM_NAMES.get(level, ""),
+            _normalize_openness(item.get("openness", "")),
+            "true" if is_boundary else ("false" if is_boundary is False else ""),
+            bc.get("q1", ""),
+            bc.get("q2", ""),
+            bc.get("q3", ""),
             item.get("rationale", ""),
-            "", "",
-            _disagreement_flag(item),
+            item.get("confidence", ""),
+            "", "", "", "",
         ])
     return buf.getvalue()
 
@@ -145,12 +161,15 @@ def build_unified_json(
             "silence_count": silence,
             "transcription_source": "Naver Clova Note + auto refine",
         },
-        "flanders_results": flanders_result.consensus_classifications if flanders_result else [],
-        "bloom_results": bloom_result.consensus_classifications if bloom_result else [],
-        "model_info": {
-            "llm": MODEL,
-            "prompt_version": PROMPT_VERSION,
-            "analyzed_at": _now_iso(),
-        },
+    }
+    # v3: 실제 실행된 이론만 포함 (Flanders 비활성화 시 자동 누락)
+    if bloom_result is not None:
+        payload["bloom_results"] = bloom_result.consensus_classifications
+    if flanders_result is not None:
+        payload["flanders_results"] = flanders_result.consensus_classifications
+    payload["model_info"] = {
+        "llm": MODEL,
+        "prompt_version": PROMPT_VERSION,
+        "analyzed_at": _now_iso(),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)

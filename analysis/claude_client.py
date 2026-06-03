@@ -26,7 +26,7 @@ import anthropic
 
 MODEL = "claude-sonnet-4-6"
 PROMPT_VERSION = "bloom_v3.0"
-MAX_TOKENS = 16000
+MAX_TOKENS = 32000
 DEFAULT_RUNS = 3
 
 # 논문에 사용하는 이론 (현재 활성)

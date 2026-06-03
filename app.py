@@ -7,6 +7,7 @@ from pathlib import Path
 
 import gradio as gr
 
+from analysis.boundary import boundary_to_csv, filter_boundary_cases
 from analysis.claude_client import THEORIES, analyze
 from analysis.export import (
     bloom_to_csv,
@@ -111,6 +112,39 @@ def run_theory(
     return header + result.markdown, str(json_path), str(csv_path), result
 
 
+def run_boundary(bloom_result: object | None, refined_transcript: str) -> tuple[str, str | None]:
+    """Bloom 결과에서 L2/L4 경계 사례만 추출 → (요약 markdown, CSV 경로)."""
+    if bloom_result is None:
+        return "먼저 **Bloom 분석**을 실행해주세요.", None
+    if _is_error_transcript(refined_transcript):
+        return "전사문이 비어 있습니다.", None
+
+    cases = filter_boundary_cases(bloom_result)  # type: ignore[arg-type]
+    total = len(bloom_result.consensus_classifications)  # type: ignore[union-attr]
+    if total == 0:
+        return "Bloom 분석 결과가 비어 있습니다.", None
+
+    ratio = len(cases) / total * 100
+    lines = [
+        f"### L2/L4 경계 사례 추출 결과",
+        f"총 발문 **{total}건** 중 경계 사례 **{len(cases)}건** ({ratio:.1f}%)",
+        "",
+    ]
+    for case in cases[:10]:
+        qid = case.get("question_id", "?")
+        lvl = case.get("bloom_level", "?")
+        cf = case.get("confidence", "?")
+        text = (case.get("question_text") or "")[:80]
+        lines.append(f"- **{qid}** [{lvl} / confidence={cf}]: {text}")
+    if len(cases) > 10:
+        lines.append(f"\n_… 외 {len(cases) - 10}건 더 (CSV에 전체 포함)_")
+
+    csv_text = boundary_to_csv(bloom_result, refined_transcript)  # type: ignore[arg-type]
+    path = TMP_DIR / "boundary_cases.csv"
+    path.write_text(csv_text, encoding="utf-8-sig")
+    return "\n".join(lines), str(path)
+
+
 def export_unified(
     flanders_result: object | None,
     bloom_result: object | None,
@@ -172,6 +206,21 @@ with gr.Blocks(title="수업 발화 분석기") as demo:
                     inputs=transcript_out,
                     outputs=[analysis_md, json_file, csv_file, states[key]],
                 )
+
+        with gr.Tab("L2/L4 경계 사례 (v3 핵심)"):
+            gr.Markdown(
+                "Bloom 분석에서 **AI가 is_boundary_case=true로 지정**했거나, "
+                "**confidence가 '중/하'** 인 발문, 또는 **3단 질문 답이 분류와 모순**인 발문만 "
+                "별도 추출합니다. 본 연구 학술적 차별성의 핵심 데이터입니다."
+            )
+            boundary_btn = gr.Button("L2/L4 경계 사례 추출", variant="primary")
+            boundary_summary = gr.Markdown()
+            boundary_csv = gr.File(label="boundary_cases.csv")
+            boundary_btn.click(
+                run_boundary,
+                inputs=[bloom_state, transcript_out],
+                outputs=[boundary_summary, boundary_csv],
+            )
 
     gr.Markdown(
         "## 3) 통합 Export — 재현가능성용\n"

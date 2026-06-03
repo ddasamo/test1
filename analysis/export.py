@@ -164,7 +164,13 @@ def build_unified_json(
     }
     # v3: 실제 실행된 이론만 포함 (Flanders 비활성화 시 자동 누락)
     if bloom_result is not None:
+        from .boundary import boundary_distribution, filter_boundary_cases
         payload["bloom_results"] = bloom_result.consensus_classifications
+        payload["boundary_cases"] = filter_boundary_cases(bloom_result)
+        payload["distributions"] = {
+            **_bloom_distributions(bloom_result),
+            **boundary_distribution(bloom_result),
+        }
     if flanders_result is not None:
         payload["flanders_results"] = flanders_result.consensus_classifications
     payload["model_info"] = {
@@ -173,3 +179,43 @@ def build_unified_json(
         "analyzed_at": _now_iso(),
     }
     return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
+def _bloom_distributions(result: AnalysisResult) -> dict[str, Any]:
+    """v3 사양 §6.4 distributions 섹션 — level/openness/confidence 통계."""
+    classifications = result.consensus_classifications
+    total = len(classifications)
+    if total == 0:
+        return {"level_counts": {}, "openness_ratio": {}, "confidence_distribution": {}}
+
+    level_counts = {f"L{i}": 0 for i in range(1, 7)}
+    open_count = 0
+    closed_count = 0
+    conf_counts = {"상": 0, "중": 0, "하": 0}
+    for item in classifications:
+        lvl = item.get("bloom_level", "")
+        if lvl in level_counts:
+            level_counts[lvl] += 1
+        opn = _normalize_openness(item.get("openness", ""))
+        if opn == "열림":
+            open_count += 1
+        elif opn == "닫힘":
+            closed_count += 1
+        cf = item.get("confidence", "")
+        if cf in conf_counts:
+            conf_counts[cf] += 1
+
+    lower = level_counts["L1"] + level_counts["L2"] + level_counts["L3"]
+    higher = level_counts["L4"] + level_counts["L5"] + level_counts["L6"]
+    return {
+        "level_counts": level_counts,
+        "lower_higher_ratio": {
+            "lower": round(lower / total, 3),
+            "higher": round(higher / total, 3),
+        },
+        "openness_ratio": {
+            "open": round(open_count / total, 3),
+            "closed": round(closed_count / total, 3),
+        },
+        "confidence_distribution": conf_counts,
+    }

@@ -25,7 +25,7 @@ from typing import Any
 import anthropic
 
 MODEL = "claude-sonnet-4-6"
-PROMPT_VERSION = "v2.0"
+PROMPT_VERSION = "bloom_v3.0"
 MAX_TOKENS = 16000
 DEFAULT_RUNS = 3
 
@@ -221,17 +221,24 @@ def analyze(theory_key: str, refined_transcript: str, runs: int = DEFAULT_RUNS) 
         "cache_read_input_tokens": 0,
     }
 
-    # Sequential: prompt cache 활용 (parallel이면 첫 호출 외에는 캐시 못 읽음)
-    for i in range(runs):
-        try:
-            text, parsed, usage = _call_once(client, prompt, refined_transcript)
-        except anthropic.APIError as e:
-            raise RuntimeError(f"Claude API 호출 실패 (run {i+1}/{runs}): {e}") from e
-        if i == 0:
-            first_markdown = text
-        raw_runs.append({"run": i + 1, "markdown": text, "parsed": parsed, "usage": usage})
-        for k in total_usage:
-            total_usage[k] += usage.get(k, 0)
+    # Parallel: 3회 동시 호출로 약 3배 빠름. 캐시 절감은 줄지만 Sonnet 4.6에서 비용 영향 미미.
+    from concurrent.futures import ThreadPoolExecutor
+
+    with ThreadPoolExecutor(max_workers=runs) as ex:
+        futures = [
+            ex.submit(_call_once, client, prompt, refined_transcript)
+            for _ in range(runs)
+        ]
+    try:
+        for i, fut in enumerate(futures, start=1):
+            text, parsed, usage = fut.result()
+            if i == 1:
+                first_markdown = text
+            raw_runs.append({"run": i, "markdown": text, "parsed": parsed, "usage": usage})
+            for k in total_usage:
+                total_usage[k] += usage.get(k, 0)
+    except anthropic.APIError as e:
+        raise RuntimeError(f"Claude API 호출 실패: {e}") from e
 
     consensus = _majority_vote([r["parsed"] for r in raw_runs])
 

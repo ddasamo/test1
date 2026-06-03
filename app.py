@@ -7,12 +7,15 @@ from pathlib import Path
 
 import gradio as gr
 
+from analysis.boundary import boundary_to_csv, filter_boundary_cases
 from analysis.claude_client import THEORIES, analyze
 from analysis.export import (
     bloom_to_csv,
     build_unified_json,
     flanders_to_csv,
 )
+from analysis.sequence import build_sequence_json, detect_patterns, detect_probing
+from config import FLANDERS_ENABLED
 from pipeline.parse_clova import parse_clova_text
 from pipeline.refine import refine, render_text
 
@@ -110,6 +113,144 @@ def run_theory(
     return header + result.markdown, str(json_path), str(csv_path), result
 
 
+def run_boundary(bloom_result: object | None, refined_transcript: str) -> tuple[str, str | None]:
+    """Bloom 결과에서 L2/L4 경계 사례만 추출 → (요약 markdown, CSV 경로)."""
+    if bloom_result is None:
+        return "먼저 **Bloom 분석**을 실행해주세요.", None
+    if _is_error_transcript(refined_transcript):
+        return "전사문이 비어 있습니다.", None
+
+    cases = filter_boundary_cases(bloom_result)  # type: ignore[arg-type]
+    total = len(bloom_result.consensus_classifications)  # type: ignore[union-attr]
+    if total == 0:
+        return "Bloom 분석 결과가 비어 있습니다.", None
+
+    ratio = len(cases) / total * 100
+    lines = [
+        f"### L2/L4 경계 사례 추출 결과",
+        f"총 발문 **{total}건** 중 경계 사례 **{len(cases)}건** ({ratio:.1f}%)",
+        "",
+    ]
+    for case in cases[:10]:
+        qid = case.get("question_id", "?")
+        lvl = case.get("bloom_level", "?")
+        cf = case.get("confidence", "?")
+        text = (case.get("question_text") or "")[:80]
+        lines.append(f"- **{qid}** [{lvl} / confidence={cf}]: {text}")
+    if len(cases) > 10:
+        lines.append(f"\n_… 외 {len(cases) - 10}건 더 (CSV에 전체 포함)_")
+
+    csv_text = boundary_to_csv(bloom_result, refined_transcript)  # type: ignore[arg-type]
+    path = TMP_DIR / "boundary_cases.csv"
+    path.write_text(csv_text, encoding="utf-8-sig")
+    return "\n".join(lines), str(path)
+
+
+def make_overview(bloom_result: object | None) -> str:
+    """Bloom 분석 결과 기반 분포·패턴 요약 — 점수·등급 없음, 객관 기술만 (사양 §7.2)."""
+    if bloom_result is None:
+        return "_Bloom 분석을 먼저 실행해주세요._"
+    classifications = bloom_result.consensus_classifications  # type: ignore[union-attr]
+    total = len(classifications)
+    if total == 0:
+        return "_분류 결과가 비어 있습니다._"
+
+    from analysis.boundary import filter_boundary_cases
+    from analysis.export import _bloom_distributions
+    from analysis.sequence import detect_patterns, detect_probing
+
+    dist = _bloom_distributions(bloom_result)  # type: ignore[arg-type]
+    level_counts = dist.get("level_counts", {})
+    lower_higher = dist.get("lower_higher_ratio", {})
+    openness = dist.get("openness_ratio", {})
+    conf = dist.get("confidence_distribution", {})
+    boundary_n = len(filter_boundary_cases(bloom_result))  # type: ignore[arg-type]
+    patterns = detect_patterns(classifications)
+    pc_count, pc_denom, _ = detect_probing(classifications)
+
+    lines = [
+        f"### 분석 개요",
+        f"- 총 분석 발문: **{total}건**",
+        "",
+        "### Bloom 단계 분포",
+    ]
+    for lv in ("L1", "L2", "L3", "L4", "L5", "L6"):
+        cnt = level_counts.get(lv, 0)
+        lines.append(f"- {lv}: {cnt}건 ({cnt / total * 100:.1f}%)")
+
+    lines += [
+        "",
+        "### 저차/고차",
+        f"- 저차 (L1~L3): {lower_higher.get('lower', 0) * 100:.1f}%",
+        f"- 고차 (L4~L6): {lower_higher.get('higher', 0) * 100:.1f}%",
+        "",
+        "### 개방성",
+        f"- 열림: {openness.get('open', 0) * 100:.1f}% / 닫힘: {openness.get('closed', 0) * 100:.1f}%",
+        "",
+        "### Confidence 분포",
+        f"- 상: {conf.get('상', 0)}건 / 중: {conf.get('중', 0)}건 / 하: {conf.get('하', 0)}건",
+        "",
+        "### L2/L4 경계 사례",
+        f"- {boundary_n}건 ({boundary_n / total * 100:.1f}%)",
+        "",
+        "### 시퀀스 패턴",
+        f"- 수평형: {sum(1 for p in patterns if p['type'] == 'plateau')}건",
+        f"- 계단형: {sum(1 for p in patterns if p['type'] == 'stairs')}건",
+        f"- 귀납형: {sum(1 for p in patterns if p['type'] == 'inductive')}건",
+        f"- 분절형: {sum(1 for p in patterns if p['type'] == 'fragmented')}건",
+        "",
+        "### Probing 발문",
+        f"- 학생 응답이 있던 발문 **{pc_denom}건** 중 Probing **{pc_count}건**"
+        + (f" ({pc_count / pc_denom * 100:.1f}%)" if pc_denom else ""),
+    ]
+    return "\n".join(lines)
+
+
+def run_sequence(bloom_result: object | None, session_id: str) -> tuple[str, str | None]:
+    """Bloom 결과 시퀀스 패턴 + Probing 분석 → (요약 markdown, JSON 경로)."""
+    if bloom_result is None:
+        return "먼저 **Bloom 분석**을 실행해주세요.", None
+    classifications = bloom_result.consensus_classifications  # type: ignore[union-attr]
+    if not classifications:
+        return "Bloom 분석 결과가 비어 있습니다.", None
+
+    patterns = detect_patterns(classifications)
+    probing_count, denom, _ = detect_probing(classifications)
+    probing_ratio = (probing_count / denom * 100) if denom else 0.0
+
+    counts = {
+        "plateau": sum(1 for p in patterns if p["type"] == "plateau"),
+        "stairs": sum(1 for p in patterns if p["type"] == "stairs"),
+        "inductive": sum(1 for p in patterns if p["type"] == "inductive"),
+        "fragmented": sum(1 for p in patterns if p["type"] == "fragmented"),
+    }
+    lines = [
+        "### 발문 시퀀스 패턴 분석",
+        f"총 발문 **{len(classifications)}건**",
+        "",
+        f"- 수평형(plateau): **{counts['plateau']}건**",
+        f"- 계단형(stairs): **{counts['stairs']}건**",
+        f"- 귀납형(inductive): **{counts['inductive']}건**",
+        f"- 분절형(fragmented): **{counts['fragmented']}건**",
+        "",
+        f"### Probing 발문",
+        f"학생 응답이 있던 발문 **{denom}건** 중 Probing **{probing_count}건** ({probing_ratio:.1f}%)",
+        "",
+    ]
+    if patterns:
+        lines.append("### 검출된 패턴 (상위 10개)")
+        for p in patterns[:10]:
+            lines.append(
+                f"- **{p['type']}** [{p['start_question']} → {p['end_question']}]: "
+                f"{' → '.join(p['levels'])}"
+            )
+
+    payload = build_sequence_json(bloom_result, session_id)  # type: ignore[arg-type]
+    path = TMP_DIR / "sequence_patterns.json"
+    path.write_text(payload, encoding="utf-8")
+    return "\n".join(lines), str(path)
+
+
 def export_unified(
     flanders_result: object | None,
     bloom_result: object | None,
@@ -155,9 +296,20 @@ with gr.Blocks(title="수업 발화 분석기") as demo:
 
     refine_btn.click(handle_paste, inputs=clova_in, outputs=transcript_out)
 
-    gr.Markdown("## 2) 이론별 분석")
+    gr.Markdown("## 2) 분석")
     with gr.Tabs():
+        with gr.Tab("개요"):
+            gr.Markdown(
+                "Bloom 분석 실행 후 아래 버튼을 누르면 **분포·경계·시퀀스·Probing** "
+                "주요 통계가 한눈에 표시됩니다. (점수·등급 없음, 객관 기술만)"
+            )
+            overview_btn = gr.Button("요약 보기", variant="primary")
+            overview_md = gr.Markdown()
+            overview_btn.click(make_overview, inputs=bloom_state, outputs=overview_md)
+
         for key, label in THEORIES.items():
+            if key == "flanders" and not FLANDERS_ENABLED:
+                continue
             with gr.Tab(label):
                 analyze_btn = gr.Button(f"{label} 실행", variant="primary")
                 analysis_md = gr.Markdown()
@@ -170,23 +322,56 @@ with gr.Blocks(title="수업 발화 분석기") as demo:
                     outputs=[analysis_md, json_file, csv_file, states[key]],
                 )
 
-    gr.Markdown(
-        "## 3) 통합 Export — 재현가능성용\n"
-        "Flanders + Bloom 결과를 하나의 JSON으로 묶고, session_id / prompt_version / "
-        "model / 분석 시각 메타데이터를 함께 기록합니다."
-    )
-    with gr.Row():
-        session_id_in = gr.Textbox(
-            label="Session ID (선택)",
-            placeholder="예: 20260603_class01 (비우면 자동 생성)",
-        )
-        unified_btn = gr.Button("통합 JSON 생성", variant="secondary")
-    unified_file = gr.File(label="통합 JSON 다운로드")
-    unified_btn.click(
-        export_unified,
-        inputs=[flanders_state, bloom_state, transcript_out, session_id_in],
-        outputs=unified_file,
-    )
+        with gr.Tab("L2/L4 경계 사례 (v3 핵심)"):
+            gr.Markdown(
+                "Bloom 분석에서 **AI가 is_boundary_case=true로 지정**했거나, "
+                "**confidence가 '중/하'** 인 발문, 또는 **3단 질문 답이 분류와 모순**인 발문만 "
+                "별도 추출합니다. 본 연구 학술적 차별성의 핵심 데이터입니다."
+            )
+            boundary_btn = gr.Button("L2/L4 경계 사례 추출", variant="primary")
+            boundary_summary = gr.Markdown()
+            boundary_csv = gr.File(label="boundary_cases.csv")
+            boundary_btn.click(
+                run_boundary,
+                inputs=[bloom_state, transcript_out],
+                outputs=[boundary_summary, boundary_csv],
+            )
+
+        with gr.Tab("시퀀스 패턴"):
+            gr.Markdown(
+                "Bloom 분류 결과의 단계 시퀀스에서 **수평형/계단형/귀납형/분절형** 패턴과 "
+                "**Probing 발문**(직전 학생 응답 + 신호어 + L4↑)을 자동 식별합니다."
+            )
+            sequence_session_in = gr.Textbox(
+                label="Session ID (선택 — 결과 JSON에 기록)",
+                placeholder="예: 20260603_class01",
+            )
+            sequence_btn = gr.Button("시퀀스 패턴 분석", variant="primary")
+            sequence_summary = gr.Markdown()
+            sequence_json = gr.File(label="sequence_patterns.json")
+            sequence_btn.click(
+                run_sequence,
+                inputs=[bloom_state, sequence_session_in],
+                outputs=[sequence_summary, sequence_json],
+            )
+
+        with gr.Tab("통합 Export"):
+            gr.Markdown(
+                "Bloom + 경계 + 시퀀스 + distributions + 메타데이터(session_id / "
+                "prompt_version / model / 분석 시각)를 하나의 JSON으로 묶습니다. "
+                "재현가능성과 후속 분석 자료용."
+            )
+            session_id_in = gr.Textbox(
+                label="Session ID (선택)",
+                placeholder="예: 20260603_class01 (비우면 자동 생성)",
+            )
+            unified_btn = gr.Button("통합 JSON 생성", variant="primary")
+            unified_file = gr.File(label="통합 JSON 다운로드")
+            unified_btn.click(
+                export_unified,
+                inputs=[flanders_state, bloom_state, transcript_out, session_id_in],
+                outputs=unified_file,
+            )
 
 
 if __name__ == "__main__":
